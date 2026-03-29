@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>席替えアプリ</title>
+  <style>
+    :root {
+      --bg:      #0f0f1a;
+      --card:    #1e1e3a;
+      --border:  #3a3a5a;
+      --primary: #667eea;
+      --success: #48bb78;
+      --text:    #e2e8f0;
+      --muted:   #718096;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── MODE SWITCHING ──────────────────────────────── */
+    .mode        { display: none; }
+    .mode.active { display: flex; flex-direction: column; min-height: 100vh; }
+
+    /* ── SETUP ───────────────────────────────────────── */
+    #setup { background: #12122a; padding: 0 0 48px; }
+    .setup-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 13px 20px;
+      background: #0d0d22; border-bottom: 1px solid var(--border);
+      margin-bottom: 18px; gap: 12px;
+    }
+    .setup-header h1 { font-size: 17px; white-space: nowrap; }
+
+    .controls {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      padding: 0 20px; margin-bottom: 14px; align-items: center;
+    }
+    .ctrl {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--card); padding: 8px 12px; border-radius: 8px;
+    }
+    .ctrl label { font-size: 12px; color: var(--muted); }
+    .counter { display: flex; align-items: center; gap: 6px; }
+    .counter button {
+      width: 26px; height: 26px; background: var(--border);
+      border: none; color: white; border-radius: 4px;
+      cursor: pointer; font-size: 15px; font-weight: bold; line-height: 1;
+    }
+    .counter button:hover { background: var(--primary); }
+    .counter span { min-width: 28px; text-align: center; font-size: 16px; font-weight: bold; }
+
+    .action-btns { display: flex; gap: 8px; padding: 0 20px; margin-bottom: 10px; }
+    .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold; }
+    .btn-random  { background: var(--success); color: #fff; }
+    .btn-clear   { background: var(--border);  color: var(--text); }
+    .btn-present {
+      background: var(--primary); color: #fff;
+      padding: 10px 18px; border-radius: 8px; border: none;
+      cursor: pointer; font-size: 14px; font-weight: bold; white-space: nowrap;
+    }
+    .btn:hover, .btn-present:hover { filter: brightness(1.15); }
+
+    .hint { font-size: 11px; color: var(--muted); padding: 0 20px; margin-bottom: 12px; }
+
+    /* ── BLACKBOARD ──────────────────────────────────── */
+    .blackboard {
+      text-align: center; font-size: 12px; letter-spacing: 5px;
+      color: rgba(255,255,255,0.4);
+      padding: 5px 0; margin: 0 20px 10px;
+      border-bottom: 2px solid #2d5a27;
+      background: #1a3a18; border-radius: 4px 4px 0 0;
+    }
+
+    /* ── GRID ────────────────────────────────────────── */
+    .grid-wrap { padding: 0 20px; overflow-x: auto; }
+    .seat-grid  { display: grid; gap: 6px; width: max-content; min-width: 100%; }
+
+    /* ── SEAT (shared base) ──────────────────────────── */
+    .seat {
+      width: 62px; height: 62px;
+      background: var(--card); border: 2px solid var(--border);
+      border-radius: 8px; display: flex; align-items: center; justify-content: center;
+      font-size: 20px; font-weight: bold;
+      cursor: pointer; transition: border-color .15s, background .15s;
+      user-select: none; position: relative;
+    }
+    .seat:hover { border-color: var(--primary); background: #252550; }
+
+    /* 番号未入力の枠（クリアした状態） */
+    #setup .seat.blank {
+      border-color: rgba(58, 58, 90, 0.55);
+      border-style: dashed;
+    }
+    #setup .seat.blank:hover { border-color: var(--primary); border-style: solid; }
+
+    /* インライン編集中 */
+    .seat.editing {
+      border-color: var(--primary);
+      background: #252550;
+      border-style: solid;
+    }
+    .seat input {
+      width: 100%; height: 100%;
+      background: transparent; border: none;
+      color: white; font-size: 22px; font-weight: bold;
+      text-align: center; outline: none; cursor: text;
+    }
+    .seat input::-webkit-outer-spin-button,
+    .seat input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .seat input[type=number] { -moz-appearance: textfield; }
+
+    /* ── PRESENTATION ────────────────────────────────── */
+    #presentation {
+      background: radial-gradient(ellipse at 50% 30%, #1e1e4a, #080814);
+      align-items: center; justify-content: center;
+      padding: 12px 16px 20px; gap: 0; position: relative;
+      --cell: 72px;
+    }
+    .pres-toolbar {
+      position: fixed; top: 10px; right: 10px;
+      display: flex; gap: 6px; z-index: 20;
+    }
+    .toolbar-btn {
+      background: rgba(255,255,255,0.09); border: none;
+      color: var(--muted); width: 34px; height: 34px;
+      border-radius: 50%; cursor: pointer; font-size: 14px;
+      line-height: 34px; text-align: center; transition: background .2s;
+    }
+    .toolbar-btn:hover { background: rgba(255,255,255,0.2); color: white; }
+
+    #presentation .blackboard { margin: 0 0 10px; width: 100%; max-width: 900px; }
+    #presentation .grid-wrap  { padding: 0; overflow-x: visible; margin-bottom: 20px; }
+    #presentation .seat-grid  { width: max-content; gap: 7px; }
+
+    #presentation .seat {
+      width: var(--cell); height: var(--cell);
+      font-size: calc(var(--cell) * 0.38);
+      border-radius: 10px;
+    }
+    #presentation .seat.spinning { color: rgba(255,255,255,0.55); }
+    #presentation .seat.locked {
+      border-color: var(--success);
+      background: rgba(72,187,120,0.15);
+      animation: pop-in .35s ease-out forwards;
+      color: #fff;
+    }
+    @keyframes pop-in {
+      0%   { transform: scale(1.4); }
+      60%  { transform: scale(0.92); }
+      100% { transform: scale(1); }
+    }
+
+    /* ── START BUTTON ────────────────────────────────── */
+    #startBtn {
+      padding: 16px 60px; font-size: 21px; font-weight: bold; letter-spacing: 3px;
+      background: linear-gradient(135deg,#667eea,#764ba2);
+      border: none; border-radius: 50px; color: white; cursor: pointer;
+      box-shadow: 0 8px 32px rgba(102,126,234,0.5);
+      transition: transform .15s, box-shadow .15s;
+    }
+    #startBtn:hover    { transform: scale(1.06); box-shadow: 0 12px 44px rgba(102,126,234,0.7); }
+    #startBtn:active   { transform: scale(0.97); }
+    #startBtn:disabled { opacity: 0.4; cursor: default; transform: none; box-shadow: none; }
+
+    #postBtns { display: flex; gap: 12px; }
+    .btn-print {
+      padding: 12px 28px; background: var(--success);
+      border: none; border-radius: 8px; color: white; cursor: pointer;
+      font-size: 15px; font-weight: bold;
+    }
+    .btn-redo {
+      padding: 12px 28px; background: var(--border);
+      border: none; border-radius: 8px; color: white; cursor: pointer; font-size: 15px;
+    }
+    .btn-print:hover, .btn-redo:hover { filter: brightness(1.15); }
+
+    /* ── PRINT ───────────────────────────────────────── */
+    @media print {
+      body { background: white; color: black; }
+      #setup, .pres-toolbar, #startBtn, #postBtns { display: none !important; }
+      #presentation { display: flex !important; background: white; padding: 20px; }
+      #presentation .blackboard { color: #333; border-color: #888; background: #e8f5e9; }
+      #presentation .seat {
+        background: #f0f0f0 !important; border: 1px solid #bbb !important;
+        color: black !important; animation: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════ -->
+<!--  SETUP MODE                                   -->
+<!-- ══════════════════════════════════════════════ -->
+<div id="setup" class="mode active">
+  <div class="setup-header">
+    <h1>⚙️ 設定モード</h1>
+    <button class="btn-present" onclick="goPresent()">発表モードへ →</button>
+  </div>
+
+  <div class="controls">
+    <div class="ctrl">
+      <label>行数（前後）</label>
+      <div class="counter">
+        <button onclick="changeRows(-1)">−</button>
+        <span id="rowsVal">5</span>
+        <button onclick="changeRows(1)">＋</button>
+      </div>
+    </div>
+    <div class="ctrl">
+      <label>列数（左右）</label>
+      <div class="counter">
+        <button onclick="changeCols(-1)">−</button>
+        <span id="colsVal">8</span>
+        <button onclick="changeCols(1)">＋</button>
+      </div>
+    </div>
+    <div class="ctrl">
+      <label>生徒数</label>
+      <div class="counter">
+        <button onclick="changeStudents(-1)">−</button>
+        <span id="studentsVal">40</span>
+        <button onclick="changeStudents(1)">＋</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="action-btns">
+    <button class="btn btn-random" onclick="autoAssign()">🔀 ランダム配置</button>
+    <button class="btn btn-clear"  onclick="clearAll()">クリア</button>
+  </div>
+
+  <p class="hint">
+    ※ 席をクリックして直接入力。Enter で確定・次の席へ。Tab でも移動できます。重複番号は自動でスワップ。
+  </p>
+
+  <div class="blackboard">▲ 黒 板</div>
+  <div class="grid-wrap">
+    <div id="setupGrid" class="seat-grid"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<!--  PRESENTATION MODE                            -->
+<!-- ══════════════════════════════════════════════ -->
+<div id="presentation" class="mode">
+  <div class="pres-toolbar">
+    <button class="toolbar-btn" onclick="zoom(-1)" title="縮小">－</button>
+    <button class="toolbar-btn" onclick="zoom(+1)" title="拡大">＋</button>
+    <button class="toolbar-btn" onclick="goSetup()" title="設定へ戻る">⚙️</button>
+  </div>
+  <div class="blackboard">▲ 黒 板</div>
+  <div class="grid-wrap">
+    <div id="presentGrid" class="seat-grid"></div>
+  </div>
+  <button id="startBtn" onclick="startAnimation()">スタート！</button>
+  <div id="postBtns" style="display:none; margin-top:18px;">
+    <button class="btn-print" onclick="window.print()">🖨️ 印刷</button>
+    <button class="btn-redo"  onclick="resetPresent()">もう一度</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<!--  SCRIPT                                       -->
+<!-- ══════════════════════════════════════════════ -->
+<script>
+// ── STATE ──────────────────────────────────────────────────
+// seats[i]: 1〜N = 出席番号、0 = 枠あり番号なし（クリア状態）
+// 表示ルール:
+//   i < studentCount → 常に枠を表示（0ならdashed枠、番号ありなら番号表示）
+//   i >= studentCount → 表示しない（物理的に机なし）
+const S = {
+  rows: 5, cols: 8, studentCount: 40,
+  seats: [],
+  zoomOffset: 0
+};
+
+// ── PERSISTENCE ────────────────────────────────────────────
+function save() { localStorage.setItem('seating-v4', JSON.stringify(S)); }
+function load() {
+  try {
+    const d = JSON.parse(localStorage.getItem('seating-v4') || 'null');
+    if (d) {
+      S.rows         = d.rows         ?? S.rows;
+      S.cols         = d.cols         ?? S.cols;
+      S.studentCount = d.studentCount ?? S.studentCount;
+      S.seats        = d.seats        ?? [];
+      S.zoomOffset   = d.zoomOffset   ?? 0;
+    }
+  } catch(e) {}
+}
+
+// ── HELPERS ────────────────────────────────────────────────
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function syncCounters() {
+  document.getElementById('rowsVal').textContent     = S.rows;
+  document.getElementById('colsVal').textContent     = S.cols;
+  document.getElementById('studentsVal').textContent = S.studentCount;
+}
+
+// ── CELL SIZE (presentation) ────────────────────────────────
+function calcCellSize() {
+  const GAP = 7, H_PAD = 32, OVERHEAD = 164;
+  const avW = window.innerWidth  - H_PAD  - GAP * (S.cols - 1);
+  const avH = window.innerHeight - OVERHEAD - GAP * (S.rows - 1);
+  const base = Math.floor(Math.min(avW / S.cols, avH / S.rows));
+  return Math.max(40, Math.min(base + S.zoomOffset * 10, 200));
+}
+function applyCellSize() {
+  document.getElementById('presentation').style.setProperty('--cell', calcCellSize() + 'px');
+}
+function zoom(dir) { S.zoomOffset = Math.max(-8, Math.min(8, S.zoomOffset + dir)); applyCellSize(); save(); }
+window.addEventListener('resize', () => {
+  if (document.getElementById('presentation').classList.contains('active')) applyCellSize();
+});
+
+// ── GRID RESIZE ─────────────────────────────────────────────
+function resizeSeats(newR, newC) {
+  const old = [...S.seats], oR = S.rows, oC = S.cols;
+  S.rows = newR; S.cols = newC;
+  const total = newR * newC;
+  const next  = Array(total).fill(0);
+  // 既存の配置を可能な範囲でコピー（i < studentCount の枠だけ有効）
+  for (let r = 0; r < Math.min(oR, newR); r++)
+    for (let c = 0; c < Math.min(oC, newC); c++)
+      next[r * newC + c] = old[r * oC + c] ?? 0;
+  S.seats = next;
+  S.studentCount = Math.min(S.studentCount, total);
+}
+
+function changeRows(d) {
+  const nr = Math.max(1, Math.min(10, S.rows + d));
+  if (nr === S.rows) return;
+  resizeSeats(nr, S.cols); syncCounters(); renderSetup(); save();
+}
+function changeCols(d) {
+  const nc = Math.max(1, Math.min(10, S.cols + d));
+  if (nc === S.cols) return;
+  resizeSeats(S.rows, nc); syncCounters(); renderSetup(); save();
+}
+
+// ── 生徒数変更 ───────────────────────────────────────────────
+function changeStudents(d) {
+  const total    = S.rows * S.cols;
+  const newCount = Math.max(1, Math.min(total, S.studentCount + d));
+  if (newCount === S.studentCount) return;
+
+  if (newCount < S.studentCount) {
+    // 非表示になる枠の番号を消す
+    for (let i = newCount; i < S.studentCount; i++) S.seats[i] = 0;
+    // 表示範囲内に残った番号が範囲超えなら消す
+    for (let i = 0; i < newCount; i++) {
+      if (S.seats[i] > newCount) S.seats[i] = 0;
+    }
+  }
+  // 増加時: 新しい枠は seats[newCount-1] まで。すでに 0 なので枠だけ表示される
+
+  S.studentCount = newCount;
+  syncCounters(); renderSetup(); save();
+}
+
+// ── SEAT ASSIGNMENT ─────────────────────────────────────────
+function autoAssign() {
+  const total = S.rows * S.cols;
+  const nums  = shuffle(Array.from({length: S.studentCount}, (_, i) => i + 1));
+  S.seats = Array(total).fill(0);
+  nums.forEach((n, i) => { S.seats[i] = n; }); // 0..N-1 に配置
+  renderSetup(); save();
+}
+
+// クリア: 枠は残して番号だけ消す
+function clearAll() {
+  S.seats = Array(S.rows * S.cols).fill(0);
+  renderSetup(); save();
+}
+
+// ── SETUP GRID RENDER ───────────────────────────────────────
+function renderSetup() {
+  const grid = document.getElementById('setupGrid');
+  grid.style.gridTemplateColumns = `repeat(${S.cols}, 62px)`;
+  grid.innerHTML = '';
+
+  for (let i = 0; i < S.rows * S.cols; i++) {
+    if (i >= S.studentCount) break; // studentCount より後は机なし → 非表示
+
+    const num = S.seats[i];
+    const el  = document.createElement('div');
+    el.className   = 'seat' + (num === 0 ? ' blank' : '');
+    el.dataset.i   = i;
+    el.textContent = num > 0 ? num : '';
+    el.addEventListener('click', () => startEdit(el, i));
+    grid.appendChild(el);
+  }
+}
+
+// ── インライン編集 ──────────────────────────────────────────
+let editingIdx = null;
+
+function startEdit(el, idx) {
+  if (editingIdx === idx) return;          // 同じ席なら何もしない
+  if (editingIdx !== null) finishEdit(editingIdx); // 別の席を編集中なら確定
+
+  editingIdx = idx;
+  const savedNum = S.seats[idx]; // キャンセル時に戻す用
+
+  el.classList.remove('blank');
+  el.classList.add('editing');
+  el.textContent = '';
+
+  const inp = document.createElement('input');
+  inp.type        = 'number';
+  inp.min         = 1;
+  inp.max         = S.studentCount;
+  inp.value       = savedNum > 0 ? savedNum : '';
+  inp.placeholder = '';
+  el.appendChild(inp);
+  inp.focus();
+  inp.select();
+
+  // ── キー操作 ────────────────────────────────
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      finishEdit(idx);
+      const next = adjacentSeat(idx, false);
+      if (next) startEdit(next, +next.dataset.i);
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      finishEdit(idx);
+      const next = adjacentSeat(idx, e.shiftKey);
+      if (next) startEdit(next, +next.dataset.i);
+    } else if (e.key === 'Escape') {
+      // キャンセル: 元の値に戻す
+      editingIdx = null;
+      el.classList.remove('editing');
+      el.innerHTML = '';
+      el.textContent = savedNum > 0 ? savedNum : '';
+      el.className = 'seat' + (savedNum === 0 ? ' blank' : '');
+    }
+  });
+
+  // ── フォーカスが外れたとき ───────────────────
+  inp.addEventListener('blur', () => {
+    // 別の席クリックで startEdit が呼ばれた場合は editingIdx が変わっている
+    setTimeout(() => {
+      if (editingIdx === idx) finishEdit(idx);
+    }, 120);
+  });
+}
+
+// 入力値を確定して DOM を更新（フル再描画なし）
+function finishEdit(idx) {
+  if (editingIdx !== idx) return;
+  editingIdx = null;
+
+  const el  = document.querySelector(`#setupGrid [data-i="${idx}"]`);
+  const inp = el ? el.querySelector('input') : null;
+  if (!el) return;
+
+  const raw = inp ? parseInt(inp.value, 10) : NaN;
+  const valid = !isNaN(raw) && raw >= 1 && raw <= S.studentCount;
+
+  if (valid) {
+    // 同じ番号の席があればスワップ
+    const dupIdx = S.seats.findIndex((v, i) => v === raw && i !== idx);
+    if (dupIdx !== -1) {
+      S.seats[dupIdx] = S.seats[idx];
+      const dupEl = document.querySelector(`#setupGrid [data-i="${dupIdx}"]`);
+      if (dupEl && !dupEl.querySelector('input')) {
+        dupEl.textContent = S.seats[dupIdx] > 0 ? S.seats[dupIdx] : '';
+        dupEl.className   = 'seat' + (S.seats[dupIdx] === 0 ? ' blank' : '');
+      }
+    }
+    S.seats[idx] = raw;
+  } else if (!inp || inp.value === '' || raw === 0 || isNaN(raw)) {
+    S.seats[idx] = 0; // 空欄 → 番号クリア（枠は残る）
+  }
+  // 範囲外の値はそのまま（変更しない）
+
+  el.classList.remove('editing');
+  el.innerHTML     = '';
+  el.textContent   = S.seats[idx] > 0 ? S.seats[idx] : '';
+  el.className     = 'seat' + (S.seats[idx] === 0 ? ' blank' : '');
+
+  save();
+}
+
+// 前後の席 DOM 要素を取得
+function adjacentSeat(idx, backwards) {
+  const all = [...document.querySelectorAll('#setupGrid .seat')];
+  const cur = all.findIndex(el => +el.dataset.i === idx);
+  if (cur === -1) return null;
+  const next = backwards ? cur - 1 : cur + 1;
+  return (next >= 0 && next < all.length) ? all[next] : null;
+}
+
+// ── MODE SWITCHING ──────────────────────────────────────────
+function goPresent() {
+  if (editingIdx !== null) finishEdit(editingIdx);
+  document.getElementById('setup').classList.remove('active');
+  document.getElementById('presentation').classList.add('active');
+  resetPresent();
+  applyCellSize();
+}
+function goSetup() {
+  clearAnim();
+  document.getElementById('presentation').classList.remove('active');
+  document.getElementById('setup').classList.add('active');
+}
+
+// ── PRESENTATION GRID ───────────────────────────────────────
+function renderPresent() {
+  const grid = document.getElementById('presentGrid');
+  grid.style.gridTemplateColumns = `repeat(${S.cols}, var(--cell))`;
+  grid.innerHTML = '';
+  // 番号が入っている席だけ表示（0の席はアニメーション対象外なのでスキップ）
+  S.seats.forEach((num, i) => {
+    if (i >= S.studentCount || num === 0) return;
+    const el = document.createElement('div');
+    el.className   = 'seat';
+    el.dataset.i   = i;
+    el.textContent = '？';
+    grid.appendChild(el);
+  });
+}
+
+// ── ANIMATION ───────────────────────────────────────────────
+const animT = { intervals: {}, timeouts: [] };
+
+function clearAnim() {
+  Object.values(animT.intervals).forEach(clearInterval);
+  animT.intervals = {};
+  animT.timeouts.forEach(clearTimeout);
+  animT.timeouts = [];
+}
+
+function resetPresent() {
+  clearAnim();
+  document.getElementById('startBtn').disabled      = false;
+  document.getElementById('startBtn').style.display = '';
+  document.getElementById('postBtns').style.display = 'none';
+  renderPresent();
+}
+
+function startAnimation() {
+  document.getElementById('startBtn').disabled = true;
+  const grid      = document.getElementById('presentGrid');
+  const seatEls   = [...grid.querySelectorAll('.seat')];
+  const filledNums = S.seats.filter((n, i) => i < S.studentCount && n > 0);
+  if (!seatEls.length) return;
+
+  // Phase 1: 全席スピン
+  seatEls.forEach((el, i) => {
+    el.classList.add('spinning');
+    animT.intervals[i] = setInterval(() => {
+      el.textContent = Math.floor(Math.random() * S.studentCount) + 1;
+    }, 70);
+  });
+
+  // Phase 2: ランダム順で確定
+  const order   = shuffle(seatEls.map((_, i) => i));
+  const SPIN_MS = 2200, WAVE_MS = 2200;
+
+  order.forEach((idx, rank) => {
+    const t = setTimeout(() => {
+      clearInterval(animT.intervals[idx]);
+      const el = seatEls[idx];
+      el.classList.remove('spinning');
+      el.textContent = filledNums[idx];
+      el.classList.add('locked');
+
+      if (rank === order.length - 1) {
+        const t2 = setTimeout(() => {
+          document.getElementById('startBtn').style.display = 'none';
+          document.getElementById('postBtns').style.display = 'flex';
+        }, 600);
+        animT.timeouts.push(t2);
+      }
+    }, SPIN_MS + WAVE_MS * rank / order.length);
+    animT.timeouts.push(t);
+  });
+}
+
+// ── BOOT ────────────────────────────────────────────────────
+load();
+if (!S.seats.length || S.seats.length !== S.rows * S.cols) {
+  S.seats = Array(S.rows * S.cols).fill(0);
+  autoAssign();
+} else {
+  renderSetup();
+}
+syncCounters();
+</script>
+</body>
+</html>
